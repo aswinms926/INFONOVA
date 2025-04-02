@@ -198,29 +198,57 @@ export const workExperience = [
     title: "Breaking News Coverage",
     desc: "Latest updates on the major earthquake that struck the Pacific region, with live reports from the ground.",
     className: "md:col-span-2",
-    thumbnail: "/exp1.svg",
+    thumbnail: "/breaking.svg"
   },
   {
     id: 2,
     title: "Technology Innovation",
     desc: "Revolutionary AI breakthrough: New language model shows human-like understanding in latest scientific tests.",
     className: "md:col-span-2",
-    thumbnail: "/exp2.svg",
+    thumbnail: "/tech.svg"
   },
   {
     id: 3,
     title: "Global Economics",
     desc: "Stock markets reach record highs as new economic policies boost investor confidence worldwide.",
     className: "md:col-span-2",
-    thumbnail: "/exp3.svg",
+    thumbnail: "/economics.svg"
   },
   {
     id: 4,
     title: "Sports Headlines",
     desc: "Historic victory in World Cup final: Underdog team claims championship in dramatic penalty shootout.",
     className: "md:col-span-2",
-    thumbnail: "/exp4.svg",
+    thumbnail: "/sports.svg"
   },
+  {
+    id: 5,
+    title: "Health & Science",
+    desc: "Breakthrough medical research reveals promising new treatment for chronic diseases with minimal side effects.",
+    className: "md:col-span-2",
+    thumbnail: "/health.svg"
+  },
+  {
+    id: 6,
+    title: "Entertainment News",
+    desc: "Major film festival announces groundbreaking lineup featuring emerging directors and diverse storytelling.",
+    className: "md:col-span-2",
+    thumbnail: "/entertainment.svg"
+  },
+  {
+    id: 7,
+    title: "Environmental Updates",
+    desc: "New renewable energy project sets world record for clean power generation, marking milestone in sustainability.",
+    className: "md:col-span-2",
+    thumbnail: "/environment.svg"
+  },
+  {
+    id: 8,
+    title: "Cultural Highlights",
+    desc: "International art exhibition breaks attendance records with innovative virtual reality installations.",
+    className: "md:col-span-2",
+    thumbnail: "/culture.svg"
+  }
 ];
 
 export const socialMedia = [

@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
@@ -14,6 +15,7 @@ import shutil
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from .db_sync import sync_news_to_django
 
 app = FastAPI()
 
@@ -29,9 +31,42 @@ app.add_middleware(
 @app.get("/news")
 async def get_news():
     try:
-        with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "news_cache.json"), "r") as f:
-            news_data = json.load(f)
-            return news_data
+        # Fetch fresh news
+        news_items = []
+        
+        # Parallel fetch from sources
+        tasks = [
+            quick_scrape_hindustan_times(),
+            quick_scrape_times_of_india()
+        ]
+        
+        for items in tasks:
+            if isinstance(items, list):
+                news_items.extend(items)
+        
+        # Remove duplicates
+        seen_headlines = set()
+        unique_items = []
+        for item in news_items:
+            if item.headline not in seen_headlines:
+                seen_headlines.add(item.headline)
+                unique_items.append(item)
+        
+        # Format data for Django sync
+        news_data = {
+            "latest-headlines": unique_items,
+            "last_updated": datetime.now().isoformat(),
+            "updating": False
+        }
+        
+        # Save to cache
+        with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "news_cache.json"), "w") as f:
+            json.dump(news_data, f, default=lambda x: x.dict() if hasattr(x, 'dict') else str(x))
+        
+        # Sync with Django database
+        sync_news_to_django(news_data)
+        
+        return news_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -95,6 +130,23 @@ def text_to_speech(text, filename):
     
     return f"/static/{filename}"
 
+def clean_content(content):
+    if not content:
+        return ""
+        
+    noise_phrases = [
+        "Recommended Topics", "Share this article", "Share Via",
+        "Copy Link", "Get Current Updates", "Latest News at Hindustan Times",
+        "ADVERTISEMENT", "Sponsored Content", "Related Stories"
+    ]
+    
+    for noise in noise_phrases:
+        content = content.replace(noise, "")
+    
+    # Remove extra whitespace and normalize spaces
+    content = ' '.join(content.split())
+    return content
+
 def summarize_news(title, content):
     if not content or content == "Content not available.":
         return "Summary not available due to missing content."
@@ -115,14 +167,12 @@ Focus on the key points and main message. Make it clear and easy to understand."
                 return response.text.strip()
 
         # Fallback to simple summarization if Gemini fails
-        gemini_limit_reached = True
         print("Gemini API failed or limit reached. Using local summarization.")
         sentences = content.split('.')
         summary = f"{title}. {' '.join(sentences[:3])}"
         return summary
 
     except Exception as e:
-        gemini_limit_reached = True
         print(f"Error with Gemini API: {str(e)}")
         # Fallback to simple summarization
         sentences = content.split('.')
@@ -635,8 +685,6 @@ async def get_categories():
         ]
     }
 
-from fastapi import Request
-
 @app.get("/news")
 @app.options("/news")
 async def get_news(request: Request, category: str = None):
@@ -651,6 +699,8 @@ async def get_news(request: Request, category: str = None):
         if cache_key in NEWS_CACHE:
             cached_data = NEWS_CACHE[cache_key]
             if current_time - cached_data["timestamp"] < CACHE_DURATION:
+                # Sync cached data with Django
+                sync_news_to_django(cached_data["data"])
                 return cached_data["data"]
         
         # Fetch fresh news
@@ -679,6 +729,9 @@ async def get_news(request: Request, category: str = None):
             "data": unique_items,
             "timestamp": current_time
         }
+        
+        # Sync with Django database
+        sync_news_to_django(unique_items)
         
         return unique_items
         
