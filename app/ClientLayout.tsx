@@ -26,10 +26,10 @@ export default function ClientLayout({
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[rgb(4,7,29)] transition-colors duration-300">
       {!isCategoryPage && !isAuthPage && <Header />}
-      {!isAuthPage && !user && <DelayedAuthPrompt />}
-      <main>
+      <main className="pt-20">
         {children}
       </main>
+      {!isAuthPage && !user && <DelayedAuthPrompt />}
     </div>
   );
 }

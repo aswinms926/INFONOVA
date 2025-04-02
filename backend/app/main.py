@@ -668,6 +668,134 @@ def quick_scrape_times_of_india():
         print(f"Error scraping TOI: {str(e)}")
         return []
 
+def quick_scrape_ndtv():
+    url = "https://www.ndtv.com/latest"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    news_items = []
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(r.content, 'html.parser')
+        
+        articles = soup.find_all('div', class_='news_item')
+        
+        for article in articles[:10]:
+            try:
+                headline = article.find('h2', class_='newsHdng').text.strip()
+                content = article.find('p', class_='newsCont').text.strip()
+                link = article.find('a', href=True)['href']
+                
+                if content and len(content.split()) > 20:
+                    summary = summarize_news(headline, content)
+                    category = categorize_news(headline, content)
+                    
+                    news_item = NewsItem(
+                        headline=headline,
+                        summary=summary,
+                        url=link,
+                        source="NDTV",
+                        timestamp=datetime.now().isoformat(),
+                        category=category
+                    )
+                    news_items.append(news_item)
+            except Exception as e:
+                print(f"Error processing NDTV article: {str(e)}")
+                continue
+        
+        return news_items
+    except Exception as e:
+        print(f"Error scraping NDTV: {str(e)}")
+        return []
+
+def quick_scrape_india_today():
+    url = "https://www.indiatoday.in/news"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    news_items = []
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(r.content, 'html.parser')
+        
+        articles = soup.find_all('div', class_='story-wrapper')
+        
+        for article in articles[:10]:
+            try:
+                headline = article.find('h2').text.strip()
+                link = "https://www.indiatoday.in" + article.find('a', href=True)['href']
+                
+                # Get full article content
+                article_res = requests.get(link, headers=headers, timeout=5)
+                article_soup = BeautifulSoup(article_res.content, 'html.parser')
+                content_div = article_soup.find('div', class_='story-details')
+                
+                if content_div:
+                    content = clean_content(content_div.text.strip())
+                    if content and len(content.split()) > 20:
+                        summary = summarize_news(headline, content)
+                        category = categorize_news(headline, content)
+                        
+                        news_item = NewsItem(
+                            headline=headline,
+                            summary=summary,
+                            url=link,
+                            source="India Today",
+                            timestamp=datetime.now().isoformat(),
+                            category=category
+                        )
+                        news_items.append(news_item)
+            except Exception as e:
+                print(f"Error processing India Today article: {str(e)}")
+                continue
+        
+        return news_items
+    except Exception as e:
+        print(f"Error scraping India Today: {str(e)}")
+        return []
+
+def quick_scrape_the_hindu():
+    url = "https://www.thehindu.com/latest-news/"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    news_items = []
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(r.content, 'html.parser')
+        
+        articles = soup.find_all('div', class_='story-card')
+        
+        for article in articles[:10]:
+            try:
+                headline = article.find('h3').text.strip()
+                link = article.find('a', href=True)['href']
+                
+                article_res = requests.get(link, headers=headers, timeout=5)
+                article_soup = BeautifulSoup(article_res.content, 'html.parser')
+                content_div = article_soup.find('div', class_='article-body')
+                
+                if content_div:
+                    content = clean_content(content_div.text.strip())
+                    if content and len(content.split()) > 20:
+                        summary = summarize_news(headline, content)
+                        category = categorize_news(headline, content)
+                        
+                        news_item = NewsItem(
+                            headline=headline,
+                            summary=summary,
+                            url=link,
+                            source="The Hindu",
+                            timestamp=datetime.now().isoformat(),
+                            category=category
+                        )
+                        news_items.append(news_item)
+            except Exception as e:
+                print(f"Error processing The Hindu article: {str(e)}")
+                continue
+        
+        return news_items
+    except Exception as e:
+        print(f"Error scraping The Hindu: {str(e)}")
+        return []
+
 @app.get("/")
 async def root():
     return {"message": "News API is running"}
@@ -818,25 +946,67 @@ async def get_latest_headlines(request: Request):
         # Fetch fresh news
         news_items = []
         
-        # Parallel fetch from sources
-        tasks = [
-            quick_scrape_hindustan_times(),
-            quick_scrape_times_of_india()
+        # Try all available sources
+        sources = [
+            quick_scrape_hindustan_times,
+            quick_scrape_times_of_india,
+            quick_scrape_ndtv,
+            quick_scrape_india_today,
+            quick_scrape_the_hindu
         ]
         
-        for items in tasks:
-            if isinstance(items, list):
-                news_items.extend(items)
+        for source in sources:
+            try:
+                items = source()
+                if isinstance(items, list):
+                    news_items.extend(items)
+            except Exception as e:
+                print(f"Error fetching from {source.__name__}: {str(e)}")
+                continue
+        
+        # If no news items were fetched, try BBC and CNN as fallback
+        if not news_items:
+            print("No news from Indian sources, trying international sources...")
+            try:
+                bbc_items = await scrape_bbc()
+                if isinstance(bbc_items, list):
+                    news_items.extend(bbc_items)
+            except Exception as e:
+                print(f"Error fetching from BBC: {str(e)}")
+            
+            try:
+                cnn_items = await scrape_cnn()
+                if isinstance(cnn_items, list):
+                    news_items.extend(cnn_items)
+            except Exception as e:
+                print(f"Error fetching from CNN: {str(e)}")
+        
+        # If still no news items, return cached data if available
+        if not news_items and cache_key in NEWS_CACHE:
+            print("No fresh news available, returning cached data")
+            return NEWS_CACHE[cache_key]["data"]
+        
+        # Remove duplicates
+        seen_headlines = set()
+        unique_items = []
+        for item in news_items:
+            if item.headline not in seen_headlines:
+                seen_headlines.add(item.headline)
+                unique_items.append(item)
         
         # Cache results
         NEWS_CACHE[cache_key] = {
-            "data": news_items,
+            "data": unique_items,
             "timestamp": current_time
         }
         
-        return news_items
+        return unique_items
         
     except Exception as e:
+        print(f"Error in get_latest_headlines: {str(e)}")
+        # Return cached data if available
+        if cache_key in NEWS_CACHE:
+            return NEWS_CACHE[cache_key]["data"]
         raise HTTPException(status_code=500, detail=str(e))
 
 # Removed duplicate route handler

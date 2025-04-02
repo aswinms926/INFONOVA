@@ -1,99 +1,82 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { readingTracker } from '@/lib/readingTracker';
-import { useAuth } from '@/lib/AuthContext';
-import { BentoGridItem } from './ui/BentoGrid';
+import { useState } from 'react';
+import { BentoGrid, BentoGridItem } from '@/components/ui/BentoGrid';
 
 interface Article {
-  id: string;
+  id: number;
   title: string;
   description: string;
-  category: string;
+  img: string;
 }
 
-export const RecommendedArticles = () => {
-  const [recommendations, setRecommendations] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
-
-  useEffect(() => {
-    const fetchRecommendations = async () => {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        // Get user preferences
-        const preferences = await readingTracker.getCategoryPreferences();
-        
-        if (!preferences) {
-          setLoading(false);
-          return;
-        }
-
-        // Sort categories by weight
-        const sortedCategories = Object.entries(preferences.categories)
-          .sort(([, a], [, b]) => b - a)
-          .map(([category]) => category);
-
-        // Fetch articles from preferred categories
-        // This is where you'd integrate with your news API
-        // For now, we'll use mock data
-        const mockArticles: Article[] = sortedCategories.slice(0, 4).map((category, index) => ({
-          id: `rec-${index}`,
-          title: `Top ${category} Story`,
-          description: `Latest news from your favorite ${category} category`,
-          category
-        }));
-
-        setRecommendations(mockArticles);
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRecommendations();
-  }, [user]);
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-40">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
-      </div>
-    );
+const mockArticles: Article[] = [
+  {
+    id: 1,
+    title: "Breaking News",
+    description: "Stay updated with the latest breaking news and developments from around the world.",
+    img: "/breaking.svg"
+  },
+  {
+    id: 2,
+    title: "Technology & Innovation",
+    description: "Discover the latest technological advancements and innovative solutions.",
+    img: "/tech.svg"
+  },
+  {
+    id: 3,
+    title: "Business & Finance",
+    description: "Track market trends, business insights, and financial updates.",
+    img: "/economics.svg"
+  },
+  {
+    id: 4,
+    title: "Sports",
+    description: "Follow your favorite sports, teams, and athletes.",
+    img: "/sports.svg"
+  },
+  {
+    id: 5,
+    title: "Health & Wellness",
+    description: "Get the latest health news, medical breakthroughs, and wellness tips.",
+    img: "/health.svg"
+  },
+  {
+    id: 6,
+    title: "Entertainment",
+    description: "Stay up to date with movies, music, celebrities, and pop culture.",
+    img: "/entertainment.svg"
+  },
+  {
+    id: 7,
+    title: "Environment",
+    description: "Learn about climate change, sustainability, and environmental news.",
+    img: "/environment.svg"
+  },
+  {
+    id: 8,
+    title: "Culture",
+    description: "Explore art, literature, history, and cultural events.",
+    img: "/culture.svg"
   }
+];
 
-  if (!user) {
-    return (
-      <div className="text-center p-4">
-        <p className="text-gray-400">Sign in to see personalized recommendations</p>
-      </div>
-    );
-  }
-
-  if (recommendations.length === 0) {
-    return (
-      <div className="text-center p-4">
-        <p className="text-gray-400">Start reading articles to get personalized recommendations</p>
-      </div>
-    );
-  }
-
+export default function RecommendedArticles() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      {recommendations.map((article, i) => (
-        <BentoGridItem
-          key={article.id}
-          id={i}
-          title={article.title}
-          description={article.description}
-          className="md:col-span-1"
-        />
-      ))}
+    <div className="w-full">
+      <h2 className="text-2xl font-bold mb-6 text-white">Your Top Picks</h2>
+      <BentoGrid className="max-w-4xl mx-auto">
+        {mockArticles.map((article) => (
+          <BentoGridItem
+            key={article.id}
+            id={article.id}
+            title={article.title}
+            description={article.description}
+            img={article.img}
+            className="cursor-pointer"
+          />
+        ))}
+      </BentoGrid>
     </div>
   );
-}; 
+} 

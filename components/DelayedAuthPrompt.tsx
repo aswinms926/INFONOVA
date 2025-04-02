@@ -70,6 +70,7 @@ export default function DelayedAuthPrompt() {
               <div className="relative z-10">
                 <button
                   onClick={handleClose}
+                  aria-label="Close prompt"
                   className="absolute top-4 right-4 text-white/40 hover:text-white/90 transition-colors duration-200"
                 >
                   <svg

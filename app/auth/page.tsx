@@ -10,7 +10,8 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   updateProfile,
-  fetchSignInMethodsForEmail
+  fetchSignInMethodsForEmail,
+  sendPasswordResetEmail
 } from "firebase/auth";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import Image from "next/image";
@@ -24,6 +25,8 @@ export default function AuthPage() {
   const [usernameError, setUsernameError] = useState("");
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -200,6 +203,32 @@ export default function AuthPage() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setError("Please enter your email address");
+      return;
+    }
+
+    setIsResetting(true);
+    setError("");
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetEmailSent(true);
+      setError("");
+    } catch (error: any) {
+      if (error.code === 'auth/user-not-found') {
+        setError("No account found with this email address");
+      } else if (error.code === 'auth/invalid-email') {
+        setError("Invalid email address");
+      } else {
+        setError("Failed to send reset email. Please try again.");
+      }
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[rgb(4,7,29)] px-4">
       <div className="w-full max-w-md">
@@ -292,6 +321,16 @@ export default function AuthPage() {
                   )}
                 </button>
               </div>
+              {!isSignUp && (
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={isResetting}
+                  className="mt-2 text-sm text-purple-500 hover:text-purple-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isResetting ? "Sending reset link..." : resetEmailSent ? "Reset link sent! Check your email" : "Forgot password?"}
+                </button>
+              )}
             </div>
 
             {error && (
@@ -313,6 +352,7 @@ export default function AuthPage() {
                 setIsSignUp(!isSignUp);
                 setError("");
                 setUsernameError("");
+                setResetEmailSent(false);
               }}
               className="text-purple-500 hover:text-purple-400 transition-colors"
             >

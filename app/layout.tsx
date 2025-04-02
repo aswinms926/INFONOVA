@@ -2,9 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/lib/AuthContext";
-import Header from "@/components/Header";
-import DelayedAuthPrompt from "@/components/DelayedAuthPrompt";
-import { usePathname } from "next/navigation";
+import ClientLayout from "./ClientLayout";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -27,8 +25,9 @@ export default function RootLayout({
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           <AuthProvider>
-            <Header />
-            {children}
+            <ClientLayout>
+              {children}
+            </ClientLayout>
           </AuthProvider>
         </ThemeProvider>
       </body>
