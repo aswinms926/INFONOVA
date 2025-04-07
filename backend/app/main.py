@@ -16,77 +16,11 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from .db_sync import sync_news_to_django
+import uuid
 
-app = FastAPI()
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-
-@app.get("/news")
-async def get_news():
-    try:
-        # Fetch fresh news
-        news_items = []
-        
-        # Parallel fetch from sources
-        tasks = [
-            quick_scrape_hindustan_times(),
-            quick_scrape_times_of_india()
-        ]
-        
-        for items in tasks:
-            if isinstance(items, list):
-                news_items.extend(items)
-        
-        # Remove duplicates
-        seen_headlines = set()
-        unique_items = []
-        for item in news_items:
-            if item.headline not in seen_headlines:
-                seen_headlines.add(item.headline)
-                unique_items.append(item)
-        
-        # Format data for Django sync
-        news_data = {
-            "latest-headlines": unique_items,
-            "last_updated": datetime.now().isoformat(),
-            "updating": False
-        }
-        
-        # Save to cache
-        with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "news_cache.json"), "w") as f:
-            json.dump(news_data, f, default=lambda x: x.dict() if hasattr(x, 'dict') else str(x))
-        
-        # Sync with Django database
-        sync_news_to_django(news_data)
-        
-        return news_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# This route is replaced by the combined route handler below
-
-genai.configure(api_key="AIzaSyA3d7kYEhN7HWFGWLQ0I7z9xln-LTpcq_0")
-gemini_limit_reached = False
-
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
-if not os.path.exists(STATIC_DIR):
-    os.makedirs(STATIC_DIR)
-
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-def cleanup_static_directory():
-    if os.path.exists(STATIC_DIR):
-        shutil.rmtree(STATIC_DIR)
-    os.makedirs(STATIC_DIR)
-
+# Define the NewsItem model first
 class NewsItem(BaseModel):
+    id: int
     headline: str
     summary: str
     url: str
@@ -95,6 +29,41 @@ class NewsItem(BaseModel):
     timestamp: str
     category: str
 
+# Initialize FastAPI app
+app = FastAPI()
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Update with your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+# Define cache file path
+CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "news_cache.json")
+
+# Configure static files directory
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+if not os.path.exists(STATIC_DIR):
+    os.makedirs(STATIC_DIR)
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Configure Gemini
+genai.configure(api_key="AIzaSyA3d7kYEhN7HWFGWLQ0I7z9xln-LTpcq_0")
+gemini_limit_reached = False
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Update with your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+# Define categories
 CATEGORIES = {
     "latest-headlines": {
         "name": "Latest Headlines",
@@ -117,6 +86,12 @@ CATEGORIES = {
         "keywords": ["technology", "tech", "digital", "software", "ai", "artificial intelligence",
                     "innovation", "cyber", "robot", "automation", "blockchain", "startup",
                     "gadget", "device", "computer", "internet", "mobile", "app"]
+    },
+    "image-visual": {
+        "name": "Image & Visual",
+        "keywords": ["photo", "image", "picture", "photograph", "visual", "graphic", "art", 
+                    "photography", "camera", "lens", "digital art", "illustration", "design",
+                    "visual arts", "creative", "artist", "gallery", "exhibition", "museum"]
     }
 }
 
@@ -179,45 +154,16 @@ Focus on the key points and main message. Make it clear and easy to understand."
         summary = f"{title}. {' '.join(sentences[:3])}"
         return summary
 
-def clean_content(content):
-    noise_phrases = [
-        "Recommended Topics", "Share this article", "Share Via",
-        "Copy Link", "Get Current Updates", "Latest News at Hindustan Times"
-    ]
-    
-    for noise in noise_phrases:
-        content = content.replace(noise, "")
-    
-    return ' '.join(content.split())
-
 def categorize_news(headline, content=""):
     text = (headline + " " + content).lower()
     
-    # Define more specific category rules
-    if any(word in text for word in [
-        "stock market", "shares", "investors", "profit", "revenue",
-        "company results", "quarterly", "fiscal", "financial",
-        "market cap", "sensex", "nifty", "nasdaq", "trading"
-    ]):
-        return "Business & Finance"
+    for category, info in CATEGORIES.items():
+        if category == "latest-headlines":
+            continue
+        if any(keyword in text for keyword in info["keywords"]):
+            return category
     
-    if any(word in text for word in [
-        "artificial intelligence", "machine learning", "blockchain",
-        "cryptocurrency", "digital transformation", "robotics",
-        "quantum computing", "cybersecurity", "software",
-        "startup", "innovation", "tech giant", "algorithm"
-    ]):
-        return "Technology & Innovation"
-    
-    if any(word in text for word in [
-        "election", "parliament", "prime minister", "president",
-        "foreign policy", "diplomatic", "bilateral", "summit",
-        "democracy", "constitution", "legislation", "political party",
-        "cabinet", "ministry", "international relations"
-    ]):
-        return "Politics & Global Affairs"
-    
-    return "Latest Headlines"
+    return "latest-headlines"
 
 async def scrape_hindustan_times():
     url = "https://www.hindustantimes.com/india-news/"
@@ -254,6 +200,7 @@ async def scrape_hindustan_times():
                             audio_file = text_to_speech(summary, f"hindustan_{count}.mp3")
                             
                             news_item = NewsItem(
+                                id=count + 1,
                                 headline=headline,
                                 summary=summary,
                                 url=article_url,
@@ -307,6 +254,7 @@ async def scrape_times_of_india():
                         audio_file = text_to_speech(summary, f"toi_{count}.mp3")
                         
                         news_item = NewsItem(
+                            id=count + 1,
                             headline=headline,
                             summary=summary,
                             url=article_url,
@@ -353,6 +301,7 @@ async def scrape_ndtv():
                     audio_file = text_to_speech(summary, f"ndtv_{count}.mp3")
                     
                     news_item = NewsItem(
+                        id=count + 1,
                         headline=headline,
                         summary=summary,
                         url=link,
@@ -402,6 +351,7 @@ async def scrape_india_today():
                         audio_file = text_to_speech(summary, f"indiatoday_{count}.mp3")
                         
                         news_item = NewsItem(
+                            id=count + 1,
                             headline=headline,
                             summary=summary,
                             url=link,
@@ -450,6 +400,7 @@ async def scrape_the_hindu():
                         audio_file = text_to_speech(summary, f"thehindu_{count}.mp3")
                         
                         news_item = NewsItem(
+                            id=count + 1,
                             headline=headline,
                             summary=summary,
                             url=link,
@@ -502,6 +453,7 @@ async def scrape_bbc():
                                 audio_file = text_to_speech(summary, f"bbc_{count}.mp3")
                                 
                                 news_item = NewsItem(
+                                    id=count + 1,
                                     headline=headline,
                                     summary=summary,
                                     url=link,
@@ -554,6 +506,7 @@ async def scrape_cnn():
                                 audio_file = text_to_speech(summary, f"cnn_{count}.mp3")
                                 
                                 news_item = NewsItem(
+                                    id=count + 1,
                                     headline=headline,
                                     summary=summary,
                                     url=link,
@@ -574,12 +527,13 @@ async def scrape_cnn():
 
 # Initialize cache
 NEWS_CACHE = {}
-CACHE_DURATION = 300  # 5 minutes
+CACHE_DURATION = 360  # 6 minutes
 
 def quick_scrape_hindustan_times():
     url = "https://www.hindustantimes.com/india-news/"
     headers = {"User-Agent": "Mozilla/5.0"}
     news_items = []
+    count = 0  # Add count variable
     
     try:
         r = requests.get(url, headers=headers, timeout=5)
@@ -603,18 +557,22 @@ def quick_scrape_hindustan_times():
                     if content_div:
                         content = clean_content(content_div.text.strip())
                         if content and len(content.split()) > 20:
-                            summary = summarize_news(headline, content)
+                            # Create a simple summary without Gemini
+                            sentences = content.split('.')
+                            summary = f"{headline}. {' '.join(sentences[:2])}"
                             category = categorize_news(headline, content)
                             
-                            news_item = NewsItem(
-                                headline=headline,
-                                summary=summary,
-                                url=article_url,
-                                source="Hindustan Times",
-                                timestamp=datetime.now().isoformat(),
-                                category=category
-                            )
-                            news_items.append(news_item)
+                            news_items.append({
+                                'id': count + 1,
+                                'headline': headline,
+                                'summary': summary,
+                                'url': article_url,
+                                'audio_url': '',
+                                'source': "Hindustan Times",
+                                'timestamp': datetime.now().isoformat(),
+                                'category': category
+                            })
+                            count += 1
             except Exception as e:
                 print(f"Error processing HT article: {str(e)}")
                 continue
@@ -628,6 +586,7 @@ def quick_scrape_times_of_india():
     url = "https://timesofindia.indiatimes.com/briefs"
     headers = {"User-Agent": "Mozilla/5.0"}
     news_items = []
+    count = 0  # Add count variable
     
     try:
         r = requests.get(url, headers=headers, timeout=5)
@@ -647,18 +606,22 @@ def quick_scrape_times_of_india():
                     article_url = "https://timesofindia.indiatimes.com" + link['href']
                     
                     if content and len(content.split()) > 20:
-                        summary = summarize_news(headline, content)
+                        # Create a simple summary without Gemini
+                        sentences = content.split('.')
+                        summary = f"{headline}. {' '.join(sentences[:2])}"
                         category = categorize_news(headline, content)
                         
-                        news_item = NewsItem(
-                            headline=headline,
-                            summary=summary,
-                            url=article_url,
-                            source="Times of India",
-                            timestamp=datetime.now().isoformat(),
-                            category=category
-                        )
-                        news_items.append(news_item)
+                        news_items.append({
+                            'id': count + 1,
+                            'headline': headline,
+                            'summary': summary,
+                            'url': article_url,
+                            'audio_url': '',
+                            'source': "Times of India",
+                            'timestamp': datetime.now().isoformat(),
+                            'category': category
+                        })
+                        count += 1
             except Exception as e:
                 print(f"Error processing TOI article: {str(e)}")
                 continue
@@ -690,6 +653,7 @@ def quick_scrape_ndtv():
                     category = categorize_news(headline, content)
                     
                     news_item = NewsItem(
+                        id=count + 1,
                         headline=headline,
                         summary=summary,
                         url=link,
@@ -735,6 +699,7 @@ def quick_scrape_india_today():
                         category = categorize_news(headline, content)
                         
                         news_item = NewsItem(
+                            id=count + 1,
                             headline=headline,
                             summary=summary,
                             url=link,
@@ -779,6 +744,7 @@ def quick_scrape_the_hindu():
                         category = categorize_news(headline, content)
                         
                         news_item = NewsItem(
+                            id=count + 1,
                             headline=headline,
                             summary=summary,
                             url=link,
@@ -814,59 +780,60 @@ async def get_categories():
     }
 
 @app.get("/news")
-@app.options("/news")
-async def get_news(request: Request, category: str = None):
-    if request.method == "OPTIONS":
-        return {}
-        
+@app.get("/news/latest-headlines")
+async def get_news():
     try:
-        # Check cache
-        cache_key = f"news_{category if category else 'all'}"
-        current_time = time.time()
-        
-        if cache_key in NEWS_CACHE:
-            cached_data = NEWS_CACHE[cache_key]
-            if current_time - cached_data["timestamp"] < CACHE_DURATION:
-                # Sync cached data with Django
-                sync_news_to_django(cached_data["data"])
-                return cached_data["data"]
-        
-        # Fetch fresh news
+        # Check if cache exists and is recent
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r') as f:
+                cached_data = json.load(f)
+                last_updated = datetime.fromisoformat(cached_data['last_updated'])
+                
+                # Return cached data if it's less than 5 minutes old
+                if datetime.now() - last_updated < timedelta(minutes=5):
+                    return cached_data['latest-headlines']
+
+        # If no cache or old cache, fetch fresh news
         news_items = []
         
-        # Parallel fetch from sources
-        tasks = [
-            quick_scrape_hindustan_times(),
-            quick_scrape_times_of_india()
-        ]
+        # Fetch from sources
+        ht_items = quick_scrape_hindustan_times()
+        toi_items = quick_scrape_times_of_india()
         
-        for items in tasks:
-            if isinstance(items, list):
-                news_items.extend(items)
+        news_items.extend(ht_items)
+        news_items.extend(toi_items)
         
-        # Remove duplicates
-        seen_headlines = set()
-        unique_items = []
-        for item in news_items:
-            if item.headline not in seen_headlines:
-                seen_headlines.add(item.headline)
-                unique_items.append(item)
+        if not news_items:
+            raise Exception("No news items could be fetched")
         
-        # Cache results
-        NEWS_CACHE[cache_key] = {
-            "data": unique_items,
-            "timestamp": current_time
+        # Save to cache
+        cache_data = {
+            'latest-headlines': news_items,
+            'last_updated': datetime.now().isoformat(),
+            'updating': False
         }
         
-        # Sync with Django database
-        sync_news_to_django(unique_items)
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(cache_data, f)
         
-        return unique_items
+        return news_items
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Removed duplicate route handler
+        print(f"Error fetching news: {str(e)}")
+        
+        # Try to return cached data if available
+        if os.path.exists(CACHE_FILE):
+            try:
+                with open(CACHE_FILE, 'r') as f:
+                    cached_data = json.load(f)
+                    return cached_data['latest-headlines']
+            except:
+                pass
+                
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch news data. Please try again later."
+        )
 
 @app.get("/news/{category}")
 @app.options("/news/{category}")
@@ -924,92 +891,6 @@ async def get_news_by_category(request: Request, category: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# Removed duplicate route handler
-
-@app.get("/news/latest-headlines")
-@app.options("/news/latest-headlines")
-async def get_latest_headlines(request: Request):
-    if request.method == "OPTIONS":
-        return {}
-    
-    try:
-        # Check cache
-        cache_key = "news_latest-headlines"
-        current_time = time.time()
-        
-        if cache_key in NEWS_CACHE:
-            cached_data = NEWS_CACHE[cache_key]
-            if current_time - cached_data["timestamp"] < CACHE_DURATION:
-                return cached_data["data"]
-        
-        # Fetch fresh news
-        news_items = []
-        
-        # Try all available sources
-        sources = [
-            quick_scrape_hindustan_times,
-            quick_scrape_times_of_india,
-            quick_scrape_ndtv,
-            quick_scrape_india_today,
-            quick_scrape_the_hindu
-        ]
-        
-        for source in sources:
-            try:
-                items = source()
-                if isinstance(items, list):
-                    news_items.extend(items)
-            except Exception as e:
-                print(f"Error fetching from {source.__name__}: {str(e)}")
-                continue
-        
-        # If no news items were fetched, try BBC and CNN as fallback
-        if not news_items:
-            print("No news from Indian sources, trying international sources...")
-            try:
-                bbc_items = await scrape_bbc()
-                if isinstance(bbc_items, list):
-                    news_items.extend(bbc_items)
-            except Exception as e:
-                print(f"Error fetching from BBC: {str(e)}")
-            
-            try:
-                cnn_items = await scrape_cnn()
-                if isinstance(cnn_items, list):
-                    news_items.extend(cnn_items)
-            except Exception as e:
-                print(f"Error fetching from CNN: {str(e)}")
-        
-        # If still no news items, return cached data if available
-        if not news_items and cache_key in NEWS_CACHE:
-            print("No fresh news available, returning cached data")
-            return NEWS_CACHE[cache_key]["data"]
-        
-        # Remove duplicates
-        seen_headlines = set()
-        unique_items = []
-        for item in news_items:
-            if item.headline not in seen_headlines:
-                seen_headlines.add(item.headline)
-                unique_items.append(item)
-        
-        # Cache results
-        NEWS_CACHE[cache_key] = {
-            "data": unique_items,
-            "timestamp": current_time
-        }
-        
-        return unique_items
-        
-    except Exception as e:
-        print(f"Error in get_latest_headlines: {str(e)}")
-        # Return cached data if available
-        if cache_key in NEWS_CACHE:
-            return NEWS_CACHE[cache_key]["data"]
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Removed duplicate route handler
 
 if __name__ == "__main__":
     import uvicorn
